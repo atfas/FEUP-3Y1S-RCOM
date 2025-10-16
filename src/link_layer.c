@@ -16,6 +16,7 @@ int alarmCount = 0;
 void alarmHandler(int signal) {
     alarmTriggered = TRUE;
     alarmCount++;
+    printf("Alarm Triggered\n");
 }
 
 ////////////////////////////////////////////////
@@ -40,8 +41,7 @@ int llopen(LinkLayer connectionParameters)
                 exit(1);
             }
 
-            printf("Alarm configured\n");
-
+            printf("Alarm configured %d\n", connectionParameters.nRetransmissions);
             while (connectionParameters.nRetransmissions != 0 && state != STOP) {
                 alarm(connectionParameters.timeout);
                 alarmTriggered = FALSE;
@@ -81,8 +81,8 @@ int llopen(LinkLayer connectionParameters)
                             break;
                     }
                 }
+                connectionParameters.nRetransmissions--;
             }
-            connectionParameters.nRetransmissions--;
         }
         case LlRx: {
             while (state != STOP) {
