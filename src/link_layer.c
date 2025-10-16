@@ -41,19 +41,22 @@ int llopen(LinkLayer connectionParameters)
                 exit(1);
             }
 
-            printf("Alarm configured %d\n", connectionParameters.nRetransmissions);
+            printf("Alarm configured\n");
             while (connectionParameters.nRetransmissions != 0 && state != STOP) {
                 alarm(connectionParameters.timeout);
                 alarmTriggered = FALSE;
 
                 unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_SET, ADDR_TR ^ CTRL_SET, FLAG};
-                writeBytesSerialPort(FRAME, 5);
+                int n = writeBytesSerialPort(FRAME, 5);
+                printf("Written %d bytes\n", n);
 
                 while (alarmTriggered == FALSE && state != STOP) {
                     unsigned char byte;
                     int bytes = readByteSerialPort(&byte);
 
                     if (bytes == 0) continue;
+
+                    printf("0x%02X\n", byte);
 
                     switch (state) {
                         case START:
@@ -83,6 +86,7 @@ int llopen(LinkLayer connectionParameters)
                 }
                 connectionParameters.nRetransmissions--;
             }
+            break;
         }
         case LlRx: {
             while (state != STOP) {
@@ -116,9 +120,10 @@ int llopen(LinkLayer connectionParameters)
                     default: 
                         break;
                 }
-                unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_UA, ADDR_TR ^ CTRL_UA, FLAG};
-                writeBytesSerialPort(FRAME, 5);
             }
+            unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_UA, ADDR_TR ^ CTRL_UA, FLAG};
+            writeBytesSerialPort(FRAME, 5);
+            break;
         }
     }
 
