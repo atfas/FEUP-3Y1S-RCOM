@@ -33,7 +33,7 @@ int llopen(LinkLayer connectionParameters)
     printf("Serial port %s opened\n", connectionParameters.serialPort);
 
     switch (connectionParameters.role) {
-        case LlTx: {
+        case LlTx: { // transmitter
             struct sigaction act = {0};
             act.sa_handler = &alarmHandler;
             if (sigaction(SIGALRM, &act, NULL) == -1) {
@@ -83,14 +83,16 @@ int llopen(LinkLayer connectionParameters)
                 }
                 connectionParameters.nRetransmissions--;
             }
+            break;
         }
-        case LlRx: {
+        case LlRx: { // receiver
             while (state != STOP) {
                 unsigned char byte;
                 int bytes = readByteSerialPort(&byte);
 
                 if (bytes == 0) continue;
-
+                printf("0x%02X %d\n", byte, state);
+                
                 switch (state) {
                     case START:
                         if (byte == FLAG) state = FLAG_R;
@@ -116,9 +118,11 @@ int llopen(LinkLayer connectionParameters)
                     default: 
                         break;
                 }
-                unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_UA, ADDR_TR ^ CTRL_UA, FLAG};
-                writeBytesSerialPort(FRAME, 5);
             }
+            unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_UA, ADDR_TR ^ CTRL_UA, FLAG};
+            writeBytesSerialPort(FRAME, 5);
+        
+            break;
         }
     }
 
