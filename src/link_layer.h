@@ -37,6 +37,7 @@ typedef enum
 #define CTRL_I(Ns) (Ns << 7)
 #define CTRL_RR(Nr) (0xAA ^ Nr)
 #define CTRL_REJ(Nr) (0x54 ^ Nr)
+#define CTRL_DISC 0x0B
 #define ESC 0x7D
 
 // Size of maximum acceptable payload.
