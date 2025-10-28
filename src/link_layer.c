@@ -93,6 +93,7 @@ int llopen(LinkLayer connectionParameters)
                 }
                 connectionParameters.nRetransmissions--;
             }
+            if (state != STOP) return -1;
             break;
         }
         case LlRx: { // receiver
