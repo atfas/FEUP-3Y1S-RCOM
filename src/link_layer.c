@@ -63,7 +63,7 @@ int llopen(LinkLayer connectionParameters)
 
                     if (bytes == 0) continue;
 
-                    printf("0x%02X\n", byte);
+                    //printf("0x%02X\n", byte);
 
                     switch (state) {
                         case START:
@@ -101,7 +101,7 @@ int llopen(LinkLayer connectionParameters)
                 int bytes = readByteSerialPort(&byte);
 
                 if (bytes == 0) continue;
-                printf("0x%02X %d\n", byte, state);
+                //printf("0x%02X %d\n", byte, state);
                 
                 switch (state) {
                     case START:
@@ -162,7 +162,8 @@ int llwrite(const unsigned char *buf, int bufSize)
             frame = realloc(frame, ++frameSize);
             frame[j] = ESC;
             j++;
-            frame[j] = buf[i] ^ 0x02;
+            frame[j] = buf[i] ^ 0x20;
+            j++;
         }
         else {
             frame[j] = buf[i];
@@ -255,7 +256,7 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
-int orderBitRx = 0;
+int orderBitRx = 1;
 int llread(unsigned char *packet) {
     LinkLayerState state = START;
     unsigned char control;
@@ -267,7 +268,7 @@ int llread(unsigned char *packet) {
 
         if (bytes == 0) continue;
 
-        printf("0x%02X\n", byte);
+        //printf("0x%02X\n", byte);
 
         switch (state) {
             case START:
@@ -286,6 +287,7 @@ int llread(unsigned char *packet) {
                 else if (byte == CTRL_DISC) {
                     unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_UA, ADDR_TR ^ CTRL_UA, FLAG};
                     int n = writeBytesSerialPort(FRAME, 5);
+                    printf("Received disconnect\n");
                     printf("Written %d bytes\n", n);
                     return 0;
                 }
@@ -313,9 +315,9 @@ int llread(unsigned char *packet) {
 
                     if (bcc2 == correct_bcc2) {
                         state = STOP;
-                        orderBitRx = (orderBitRx + 1)%2;
                         unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_RR(orderBitRx), ADDR_TR ^ CTRL_RR(orderBitRx), FLAG};
                         writeBytesSerialPort(FRAME, 5);
+                        orderBitRx = (orderBitRx + 1)%2;
                         return i;
                     }
                     else {
@@ -329,11 +331,11 @@ int llread(unsigned char *packet) {
                 break;
             case DATA_ESCAPE:
                 state = BCC1_OK;
-                if (byte == (ESC ^ 0x02) || byte == (FLAG ^ 0x02)) {
-                    packet[i++] = (byte ^ 0x02);
+                if (byte == (ESC ^ 0x20) || byte == (FLAG ^ 0x20)) {
+                    packet[i++] = (byte ^ 0x20);
                 }
                 else {
-                    printf("Error escape");
+                    printf("Error: invalid escape sequence (0x%02X)\n", byte);
                     unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_REJ(orderBitRx), ADDR_TR ^ CTRL_REJ(orderBitRx), FLAG};
                     writeBytesSerialPort(FRAME, 5);
                     return -1;
@@ -351,6 +353,7 @@ int llread(unsigned char *packet) {
 ////////////////////////////////////////////////
 int llclose()
 {
+    printf("LL: close called\n");
     LinkLayerState state = START;
     struct sigaction act = {0};
     act.sa_handler = &alarmHandler;
@@ -365,8 +368,7 @@ int llclose()
 
     while (transmission < retransmissions && state != STOP) {
         unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_DISC, ADDR_TR ^ CTRL_DISC, FLAG};
-        int n = writeBytesSerialPort(FRAME, 5);
-        printf("Written %d bytes\n", n);
+        writeBytesSerialPort(FRAME, 5);
 
         alarm(timeout);
         alarmTriggered = FALSE;
@@ -377,7 +379,7 @@ int llclose()
 
             if (bytes == 0) continue;
 
-            printf("0x%02X\n", byte);
+            //printf("0x%02X\n", byte);
 
             switch (state) {
                 case START:
@@ -410,7 +412,6 @@ int llclose()
 
     if (state != STOP) return -1;
     unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_UA, ADDR_TR ^ CTRL_UA, FLAG};
-    int n = writeBytesSerialPort(FRAME, 5);
-    printf("Written %d bytes\n", n);
+    writeBytesSerialPort(FRAME, 5);
     return closeSerialPort();
 }

@@ -4,6 +4,19 @@
 #ifndef _APPLICATION_LAYER_H_
 #define _APPLICATION_LAYER_H_
 
+#define MAX_PAYLOAD_SIZE 1000
+
+// Control packet types
+#define CTRL_START 2
+#define CTRL_END 3
+
+// Data packet type
+#define DATA_PACKET 1
+
+// TLV types for control packets
+#define TLV_FILE_SIZE 0
+#define TLV_FILE_NAME 1
+
 // Application layer main function.
 // Arguments:
 //   serialPort: Serial port name (e.g., /dev/ttyS0).
