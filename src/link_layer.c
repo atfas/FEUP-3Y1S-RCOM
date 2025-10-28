@@ -260,6 +260,7 @@ int llread(unsigned char *packet) {
     LinkLayerState state = START;
     unsigned char control;
     int i = 0;
+    int ignore = FALSE;
 
     while (state != STOP) {
         unsigned char byte;
@@ -282,6 +283,11 @@ int llread(unsigned char *packet) {
                     state = CTRL_R;
                     control = byte;
                 }
+                else if (byte == CTRL_I((orderBitRx+1)%2)) {
+                    state = CTRL_R;
+                    control = byte;
+                    ignore = TRUE;
+                }
                 else if (byte == FLAG) state = FLAG_R;
                 else if (byte == CTRL_DISC) {
                     unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_UA, ADDR_TR ^ CTRL_UA, FLAG};
@@ -298,7 +304,12 @@ int llread(unsigned char *packet) {
                 else state = START;
                 break;
             case BCC1_OK:
-                if (byte == ESC) state = DATA_ESCAPE;
+                if (ignore == TRUE) {
+                    unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_RR(orderBitRx), ADDR_TR ^ CTRL_RR(orderBitRx), FLAG};
+                    writeBytesSerialPort(FRAME, 5);
+                    return 0;
+                }
+                else if (byte == ESC) state = DATA_ESCAPE;
                 else if (byte == FLAG) {
                     if (i == 0) {
                         unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_REJ(orderBitRx), ADDR_TR ^ CTRL_REJ(orderBitRx), FLAG};
