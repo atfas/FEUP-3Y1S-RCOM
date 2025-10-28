@@ -27,6 +27,7 @@ typedef enum
    ADDR_R,
    CTRL_R,
    BCC1_OK,
+   DATA_ESCAPE
 } LinkLayerState;
 
 #define FLAG 0x7E

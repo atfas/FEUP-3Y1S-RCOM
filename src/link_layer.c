@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
+#include <string.h>
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
@@ -161,9 +162,12 @@ int llwrite(const unsigned char *buf, int bufSize)
             frame = realloc(frame, ++frameSize);
             frame[j] = ESC;
             j++;
+            frame[j] = buf[i] ^ 0x02;
         }
-        frame[j] = buf[i];
-        j++;
+        else {
+            frame[j] = buf[i];
+            j++;
+        }
     }
 
     frame[j] = BCC2;
@@ -191,7 +195,7 @@ int llwrite(const unsigned char *buf, int bufSize)
             writeBytesSerialPort(frame, frameSize);
             
             LinkLayerState state = START;
-            while (alarmTriggered = FALSE && state != STOP) {
+            while (alarmTriggered == FALSE && state != STOP) {
                 unsigned char byte;
                 int bytes = readByteSerialPort(&byte);
 
@@ -251,11 +255,95 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
-int llread(unsigned char *packet)
-{
-    // TODO: Implement this function
+int orderBitRx = 0;
+int llread(unsigned char *packet) {
+    LinkLayerState state = START;
+    unsigned char control;
+    int i = 0;
 
-    return 0;
+    while (state != STOP) {
+        unsigned char byte;
+        int bytes = readByteSerialPort(&byte);
+
+        if (bytes == 0) continue;
+
+        printf("0x%02X\n", byte);
+
+        switch (state) {
+            case START:
+                if (byte == FLAG) state = FLAG_R;
+                break;
+            case FLAG_R:
+                if (byte == ADDR_TR) state = ADDR_R;
+                else if (byte != FLAG) state = START;
+                break;
+            case ADDR_R:
+                if (byte == CTRL_I(0) || byte == CTRL_I(1)) {
+                    state = CTRL_R;
+                    control = byte;
+                }
+                else if (byte == FLAG) state = FLAG_R;
+                else if (byte == CTRL_DISC) {
+                    unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_UA, ADDR_TR ^ CTRL_UA, FLAG};
+                    int n = writeBytesSerialPort(FRAME, 5);
+                    printf("Written %d bytes\n", n);
+                    return 0;
+                }
+                else state = START;
+                break;
+            case CTRL_R:
+                if (byte == (ADDR_TR ^ control)) state = BCC1_OK;
+                else if (byte == FLAG) state = FLAG_R;
+                else state = START;
+                break;
+            case BCC1_OK:
+                if (byte == ESC) state = DATA_ESCAPE;
+                else if (byte == FLAG) {
+                    if (i == 0) {
+                        unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_REJ(orderBitRx), ADDR_TR ^ CTRL_REJ(orderBitRx), FLAG};
+                        writeBytesSerialPort(FRAME, 5);
+                        exit(-1);
+                    }
+                    unsigned char correct_bcc2 = packet[--i];
+                    packet[i] = '\0';
+                    unsigned char bcc2 = packet[0];
+                    for (unsigned int j = 1; j < i; j++) {
+                        bcc2 ^= packet[j];
+                    }
+
+                    if (bcc2 == correct_bcc2) {
+                        state = STOP;
+                        orderBitRx = (orderBitRx + 1)%2;
+                        unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_RR(orderBitRx), ADDR_TR ^ CTRL_RR(orderBitRx), FLAG};
+                        writeBytesSerialPort(FRAME, 5);
+                        return i;
+                    }
+                    else {
+                        printf("Error bcc2");
+                        unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_REJ(orderBitRx), ADDR_TR ^ CTRL_REJ(orderBitRx), FLAG};
+                        writeBytesSerialPort(FRAME, 5);
+                        return -1;
+                    }
+                }
+                else packet[i++] = byte;
+                break;
+            case DATA_ESCAPE:
+                state = BCC1_OK;
+                if (byte == (ESC ^ 0x02) || byte == (FLAG ^ 0x02)) {
+                    packet[i++] = (byte ^ 0x02);
+                }
+                else {
+                    printf("Error escape");
+                    unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_REJ(orderBitRx), ADDR_TR ^ CTRL_REJ(orderBitRx), FLAG};
+                    writeBytesSerialPort(FRAME, 5);
+                    return -1;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return -1;
 }
 
 ////////////////////////////////////////////////
