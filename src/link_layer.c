@@ -233,31 +233,29 @@ int llwrite(const unsigned char *buf, int bufSize)
             }
 
             if (!message) continue;
-            else if (message == CTRL_REJ(0) || message == CTRL_REJ(1)) rejected = TRUE;
-            else if (message == CTRL_RR(0) || message == CTRL_RR(1)) {
+            else if (message == CTRL_REJ(orderBit)) rejected = TRUE;
+            else if (message == CTRL_RR((orderBit+1)%2)) {
                 accepted = TRUE;
                 orderBit = (orderBit+1) % 2;
                 break;
             }
             else continue;
-
-            transmission++;
         }
-        free(frame);
-        if (accepted == TRUE) return frameSize;
-        else {
-            llclose();
-            return -1;
-        }
+        if (accepted == TRUE) break;
+        transmission++;
     }
-
-    return 0;
+    free(frame);
+    if (accepted == TRUE) return frameSize;
+    else {
+        closeSerialPort();
+        return -1;
+    }
 }
 
 ////////////////////////////////////////////////
 // LLREAD
 ////////////////////////////////////////////////
-int orderBitRx = 1;
+int orderBitRx = 0;
 int llread(unsigned char *packet) {
     LinkLayerState state = START;
     unsigned char control;
@@ -280,7 +278,7 @@ int llread(unsigned char *packet) {
                 else if (byte != FLAG) state = START;
                 break;
             case ADDR_R:
-                if (byte == CTRL_I(0) || byte == CTRL_I(1)) {
+                if (byte == CTRL_I(orderBitRx)) {
                     state = CTRL_R;
                     control = byte;
                 }
@@ -316,9 +314,9 @@ int llread(unsigned char *packet) {
 
                     if (bcc2 == correct_bcc2) {
                         state = STOP;
+                        orderBitRx = (orderBitRx + 1)%2;
                         unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_RR(orderBitRx), ADDR_TR ^ CTRL_RR(orderBitRx), FLAG};
                         writeBytesSerialPort(FRAME, 5);
-                        orderBitRx = (orderBitRx + 1)%2;
                         return i;
                     }
                     else {

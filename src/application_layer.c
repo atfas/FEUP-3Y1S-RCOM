@@ -5,6 +5,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <unistd.h>
 
 /**
  * Builds a control packet (START or END)
@@ -173,6 +174,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
         printf("Sending file data...\n");
         while (!feof(file)) {
+            sleep(1);
             int bytesRead = fread(buffer, 1, MAX_PAYLOAD_SIZE, file);
             if (bytesRead > 0) {
                 int dataPacketSize = buildDataPacket(dataPacket, sequenceNum, 
