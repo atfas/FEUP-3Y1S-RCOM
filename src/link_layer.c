@@ -23,6 +23,20 @@ void alarmHandler(int signal) {
     printf("Alarm Triggered\n");
 }
 
+int destuff(unsigned char* destuffed, int frameSize, const unsigned char* frame) {
+    int i = 0;
+    int j = 0;
+
+    while (i < frameSize) {
+        if (frame[i] == ESC) {
+            if (i + 1 >= frameSize) break;
+            destuffed[j++] = frame[i + 1] ^ 0x20;
+            i += 2;
+        } else destuffed[j++] = frame[i++];
+    }
+    return j;
+}
+
 ////////////////////////////////////////////////
 // LLOPEN
 ////////////////////////////////////////////////
@@ -32,9 +46,11 @@ int llopen(LinkLayer connectionParameters)
 
     if (openSerialPort(connectionParameters.serialPort, connectionParameters.baudRate) < 0) {
         perror("openSerialPort");
-        exit(-1);
+        exit(1);
     }
     printf("Serial port %s opened\n", connectionParameters.serialPort);
+    
+    unsigned char byte;
 
     retransmissions = connectionParameters.nRetransmissions;
     timeout = connectionParameters.timeout;
@@ -50,15 +66,14 @@ int llopen(LinkLayer connectionParameters)
 
             printf("Alarm configured\n");
             while (connectionParameters.nRetransmissions != 0 && state != STOP) {
-                alarm(connectionParameters.timeout);
-                alarmTriggered = FALSE;
-
                 unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_SET, ADDR_TR ^ CTRL_SET, FLAG};
                 int n = writeBytesSerialPort(FRAME, 5);
                 printf("Written %d bytes\n", n);
+                
+                alarm(connectionParameters.timeout);
+                alarmTriggered = FALSE;
 
                 while (alarmTriggered == FALSE && state != STOP) {
-                    unsigned char byte;
                     int bytes = readByteSerialPort(&byte);
 
                     if (bytes == 0) continue;
@@ -96,9 +111,8 @@ int llopen(LinkLayer connectionParameters)
             if (state != STOP) return -1;
             break;
         }
-        case LlRx: { // receiver
+        case LlRx: {
             while (state != STOP) {
-                unsigned char byte;
                 int bytes = readByteSerialPort(&byte);
 
                 if (bytes == 0) continue;
@@ -134,6 +148,9 @@ int llopen(LinkLayer connectionParameters)
             writeBytesSerialPort(FRAME, 5);
             break;
         }
+        default:
+            return -1;
+            break;
     }
 
     return 0;
@@ -154,11 +171,13 @@ int llwrite(const unsigned char *buf, int bufSize)
     frame[3] = frame[1] ^ frame[2];
     memcpy(frame+4, buf, bufSize);
 
-    unsigned char BCC2 = 0x00;
+    unsigned char BCC2 = buf[0];
+
+    for (int i = 1; i < bufSize; i++) BCC2 ^= buf[i];
 
     int j = 4;
     for (int i = 0; i < bufSize; i++) {
-        BCC2 ^= buf[i];
+        //BCC2 ^= buf[i];
         if (buf[i] == FLAG || buf[i] == ESC) {
             frame = realloc(frame, ++frameSize);
             frame[j] = ESC;
@@ -172,33 +191,33 @@ int llwrite(const unsigned char *buf, int bufSize)
         }
     }
 
-    frame[j] = BCC2;
-    frame[j+1] = FLAG;
-
-    struct sigaction act = {0};
-    act.sa_handler = &alarmHandler;
-    if (sigaction(SIGALRM, &act, NULL) == -1) {
-        perror("sigaction");
-        exit(1);
+    if (BCC2 == FLAG || BCC2 == ESC) {
+        frame = realloc(frame, ++frameSize);
+        frame[j] = ESC;
+        j++;
+        frame[j] = BCC2 ^ 0x20;
+        j++;
+    } else {
+        frame[j] = BCC2;
+        j++;
     }
 
-    printf("Alarm configured\n");
-
+    frame[j] = FLAG;
 
     int transmission = 0;
     int rejected = FALSE, accepted = FALSE;
-    unsigned char message = 0;
     while (transmission < retransmissions) {
         alarmTriggered = FALSE;
         alarm(timeout);
         rejected = FALSE;
         accepted = FALSE;
         while (alarmTriggered == FALSE && rejected == FALSE && accepted == FALSE) {
-            writeBytesSerialPort(frame, frameSize);
+            writeBytesSerialPort(frame, frameSize); //this
             
             LinkLayerState state = START;
+            unsigned char byte;
+            unsigned char message = 0;
             while (alarmTriggered == FALSE && state != STOP) {
-                unsigned char byte;
                 int bytes = readByteSerialPort(&byte);
 
                 if (bytes == 0) continue;
@@ -231,13 +250,13 @@ int llwrite(const unsigned char *buf, int bufSize)
                         break;
                 }
             }
+            alarm(0);
 
             if (!message) continue;
             else if (message == CTRL_REJ(orderBit)) rejected = TRUE;
             else if (message == CTRL_RR((orderBit+1)%2)) {
                 accepted = TRUE;
                 orderBit = (orderBit+1) % 2;
-                break;
             }
             else continue;
         }
@@ -247,7 +266,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     free(frame);
     if (accepted == TRUE) return frameSize;
     else {
-        closeSerialPort();
+        llclose();
         return -1;
     }
 }
@@ -258,12 +277,14 @@ int llwrite(const unsigned char *buf, int bufSize)
 int orderBitRx = 0;
 int llread(unsigned char *packet) {
     LinkLayerState state = START;
+    unsigned char byte;
     unsigned char control;
     int i = 0;
-    int ignore = FALSE;
+
+    unsigned char frame[MAX_PAYLOAD_SIZE*2];
+    unsigned char destuffed[MAX_PAYLOAD_SIZE];
 
     while (state != STOP) {
-        unsigned char byte;
         int bytes = readByteSerialPort(&byte);
 
         if (bytes == 0) continue;
@@ -272,6 +293,7 @@ int llread(unsigned char *packet) {
 
         switch (state) {
             case START:
+                i = 0;
                 if (byte == FLAG) state = FLAG_R;
                 break;
             case FLAG_R:
@@ -279,23 +301,11 @@ int llread(unsigned char *packet) {
                 else if (byte != FLAG) state = START;
                 break;
             case ADDR_R:
-                if (byte == CTRL_I(orderBitRx)) {
+                if (byte == CTRL_I(0) || byte == CTRL_I(1) || byte == CTRL_DISC) {
                     state = CTRL_R;
                     control = byte;
-                }
-                else if (byte == CTRL_I((orderBitRx+1)%2)) {
-                    state = CTRL_R;
-                    control = byte;
-                    ignore = TRUE;
                 }
                 else if (byte == FLAG) state = FLAG_R;
-                else if (byte == CTRL_DISC) {
-                    unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_UA, ADDR_TR ^ CTRL_UA, FLAG};
-                    int n = writeBytesSerialPort(FRAME, 5);
-                    printf("Received disconnect\n");
-                    printf("Written %d bytes\n", n);
-                    return 0;
-                }
                 else state = START;
                 break;
             case CTRL_R:
@@ -304,57 +314,62 @@ int llread(unsigned char *packet) {
                 else state = START;
                 break;
             case BCC1_OK:
-                if (ignore == TRUE) {
+                if (control == CTRL_I((orderBitRx+1)%2)) {
                     unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_RR(orderBitRx), ADDR_TR ^ CTRL_RR(orderBitRx), FLAG};
                     writeBytesSerialPort(FRAME, 5);
+                    state = START;
+                }
+                else if (control == CTRL_DISC) {
+                    unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_DISC, ADDR_TR ^ CTRL_DISC, FLAG};
+                    int n = writeBytesSerialPort(FRAME, 5);
+                    printf("Received disconnect\n");
+                    printf("Written %d bytes\n", n);
                     return 0;
                 }
-                else if (byte == ESC) state = DATA_ESCAPE;
                 else if (byte == FLAG) {
                     if (i == 0) {
                         unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_REJ(orderBitRx), ADDR_TR ^ CTRL_REJ(orderBitRx), FLAG};
                         writeBytesSerialPort(FRAME, 5);
-                        exit(-1);
+                        exit(1);
                     }
-                    unsigned char correct_bcc2 = packet[--i];
-                    packet[i] = '\0';
-                    unsigned char bcc2 = packet[0];
-                    for (unsigned int j = 1; j < i; j++) {
-                        bcc2 ^= packet[j];
+                    int dataSize = destuff(destuffed, i, frame);
+
+                    unsigned char correct_bcc2 = destuffed[dataSize-1];
+                    unsigned char calc_bcc2 = destuffed[0];
+                    for (int i = 1; i < dataSize - 1; i++) {
+                        calc_bcc2 ^= destuffed[i];
                     }
 
-                    if (bcc2 == correct_bcc2) {
-                        state = STOP;
-                        orderBitRx = (orderBitRx + 1)%2;
-                        unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_RR(orderBitRx), ADDR_TR ^ CTRL_RR(orderBitRx), FLAG};
-                        writeBytesSerialPort(FRAME, 5);
-                        return i;
-                    }
-                    else {
-                        printf("Error bcc2");
+                    if (correct_bcc2 == calc_bcc2) {
+                        if (control == CTRL_I(orderBitRx)) {
+                            orderBitRx = (orderBitRx +1) % 2;
+                            unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_RR(orderBitRx), ADDR_TR ^ CTRL_RR(orderBitRx), FLAG};
+                            writeBytesSerialPort(FRAME, 5);
+                            memcpy(packet, destuffed, dataSize - 1);
+                            return dataSize - 1;
+                        }
+                    } else {
+                        printf("BCC2 error\n");
                         unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_REJ(orderBitRx), ADDR_TR ^ CTRL_REJ(orderBitRx), FLAG};
                         writeBytesSerialPort(FRAME, 5);
-                        return -1;
+                        state = START;
                     }
                 }
-                else packet[i++] = byte;
-                break;
-            case DATA_ESCAPE:
-                state = BCC1_OK;
-                if (byte == (ESC ^ 0x20) || byte == (FLAG ^ 0x20)) {
-                    packet[i++] = (byte ^ 0x20);
-                }
                 else {
-                    printf("Error: invalid escape sequence (0x%02X)\n", byte);
-                    unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_REJ(orderBitRx), ADDR_TR ^ CTRL_REJ(orderBitRx), FLAG};
-                    writeBytesSerialPort(FRAME, 5);
-                    return -1;
+                    if (i < MAX_PAYLOAD_SIZE*2)
+                        frame[i++] = byte;
+                    else {
+                        printf("Frame overflow\n");
+                        i = 0;
+                        state = START;
+                    }
                 }
                 break;
             default:
                 break;
+            }
         }
-    }
+    printf("No frame received\n");
     return -1;
 }
 
@@ -375,6 +390,7 @@ int llclose()
     printf("Alarm configured\n");
 
     int transmission = 0;
+    unsigned char byte;
 
     while (transmission < retransmissions && state != STOP) {
         unsigned char FRAME[5] = {FLAG, ADDR_TR, CTRL_DISC, ADDR_TR ^ CTRL_DISC, FLAG};
@@ -384,7 +400,6 @@ int llclose()
         alarmTriggered = FALSE;
         
         while (alarmTriggered == FALSE && state != STOP) {
-            unsigned char byte;
             int bytes = readByteSerialPort(&byte);
 
             if (bytes == 0) continue;

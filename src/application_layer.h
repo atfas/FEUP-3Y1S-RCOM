@@ -4,18 +4,13 @@
 #ifndef _APPLICATION_LAYER_H_
 #define _APPLICATION_LAYER_H_
 
-#define MAX_PAYLOAD_SIZE 1000
-
-// Control packet types
-#define CTRL_START 2
+#define CTRL_START 1
+#define CTRL_DATA 2
 #define CTRL_END 3
 
-// Data packet type
-#define DATA_PACKET 1
-
-// TLV types for control packets
-#define TLV_FILE_SIZE 0
-#define TLV_FILE_NAME 1
+#define MAX_CTRL_SIZE 1024
+#define TYPE_FILESIZE 0
+#define TYPE_FILENAME 1
 
 // Application layer main function.
 // Arguments:

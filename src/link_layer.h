@@ -26,8 +26,7 @@ typedef enum
    FLAG_R,
    ADDR_R,
    CTRL_R,
-   BCC1_OK,
-   DATA_ESCAPE
+   BCC1_OK
 } LinkLayerState;
 
 #define FLAG 0x7E
@@ -43,7 +42,7 @@ typedef enum
 
 // Size of maximum acceptable payload.
 // Maximum number of bytes that application layer should send to link layer.
-#define MAX_PAYLOAD_SIZE 1000
+#define MAX_PAYLOAD_SIZE 910
 
 // MISC
 #define FALSE 0
